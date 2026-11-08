@@ -505,6 +505,14 @@ function deepChainDecision(context) {
         message: "SMOKE_DEEP_ANSWER",
       });
   }
+  // While its own child runs, the level-2 Agent sends its owner one
+  // non-blocking message and keeps waiting.
+  if (
+    level === 2 &&
+    correlatedCall(messages, "delegate_agent") &&
+    !correlatedCall(messages, "message_owner")
+  )
+    return call("message_owner", { message: "SMOKE_DEEP_NOTICE" });
   if (correlatedCall(messages, "delegate_agent"))
     return waitForResult(`Waiting for ${label}'s completed result.`);
   return call("delegate_agent", {

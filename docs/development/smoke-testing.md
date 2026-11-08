@@ -102,7 +102,9 @@ delegation tool while the level-4 Agent at the limit does not, that each
 Agent's completed result reaches its direct owner, and that the leaf's marker
 bubbles up through every level to the root's final message. The level-4 Agent
 also escalates one `ask_owner` to its level-3 owner, which answers with
-`reply_agent`, and the scenario asserts both calls. It asserts
+`reply_agent`, and the scenario asserts both calls. The level-2 Agent also
+sends one `message_owner` while its level-3 child is running, and the scenario
+asserts the call and that the level-1 owner receives the message. It asserts
 completion and result delivery. It also samples the root's rendered status
 tree and requires every level to be shown there at some sample before the chain
 finishes. That catches a root that learns of Agents it did not launch only on its

@@ -45,6 +45,9 @@ import support, {
   agentControllerExecutor,
   assignmentLockPathForTest,
   readPendingAsk,
+  listOwnerMessageIds,
+  readOwnerMessage,
+  OWNER_MESSAGE_PENDING_LIMIT,
   readRequest,
   readResult,
   readAgentState,
@@ -8384,4 +8387,147 @@ test("Manager retirement preflight continues after one assignment handoff fails"
     storage.listProjectMessages(runtime, valid.repoKey, valid.branch),
     [],
   );
+});
+
+test("message_owner queues a durable non-blocking message regardless of child work", async () => {
+  const cases = [
+    { name: "no child", children: [] },
+    { name: "active child", children: ["active"] },
+    { name: "pending-result child", children: ["pending-result"] },
+    {
+      name: "active plus pending-result",
+      children: ["active", "pending-result"],
+    },
+  ] as const;
+  for (const [index, scenario] of cases.entries()) {
+    const parentLabel = "owner-msg-parent-" + index;
+    const mailbox = setAgentEnvironment(parentLabel);
+    const parent = managedState(parentLabel, REQUEST_ID);
+    writeAgentState(mailbox, parent);
+    for (const [childIndex, kind] of scenario.children.entries()) {
+      const childLabel = "owner-msg-child-" + index + "-" + childIndex;
+      const childMailbox = agentMailboxPath(WORKSPACE, childLabel);
+      const childRequestId = randomUUID();
+      const child: ManagedAgentState = {
+        ...managedState(childLabel, childRequestId, {
+          ...recoveryIdentity(childLabel),
+          paneId: childLabel + "-pane",
+        }),
+        ownerSessionId: parent.piSessionId,
+        ...(kind === "pending-result"
+          ? { activeRequestId: undefined, completedRequestId: childRequestId }
+          : {}),
+      };
+      resetAgentMailbox(childMailbox);
+      writeAgentState(childMailbox, child);
+    }
+    const agent = fakePi();
+    registerExtension!(agent.pi as never);
+    const context = fakeAgentContext([], []);
+    await agent.events.get("session_start")![0](undefined, context);
+    const tool = agent.tools.find((t) => t.name === "message_owner")!;
+    const result = await tool.execute(
+      "msg",
+      { message: "Warning: " + scenario.name },
+      undefined,
+      undefined,
+      context,
+    );
+    assert.equal(result.terminate, undefined, scenario.name);
+    const ids = listOwnerMessageIds(mailbox);
+    assert.equal(ids.length, 1, scenario.name);
+    const record = readOwnerMessage(mailbox, ids[0]!)!;
+    assert.equal(record.text, "Warning: " + scenario.name);
+    assert.equal(record.requestId, REQUEST_ID);
+    assert.equal(result.details.messageId, record.messageId);
+    const after = readAgentState(mailbox)!;
+    assert.equal(after.pendingAskId, undefined, scenario.name);
+    assert.equal(after.activeRequestId, REQUEST_ID, scenario.name);
+    agent.events.get("session_shutdown")?.[0]();
+    resetAgentMailbox(mailbox);
+    assert.deepEqual(listOwnerMessageIds(mailbox), [], "reset clears messages");
+  }
+});
+
+test("message_owner rejects calls without an active assignment", async () => {
+  const mailbox = setAgentEnvironment("owner-msg-reject");
+  writeAgentState(mailbox, {
+    ...managedState("owner-msg-reject", REQUEST_ID),
+    activeRequestId: undefined,
+    completedRequestId: REQUEST_ID,
+  });
+  const agent = fakePi();
+  registerExtension!(agent.pi as never);
+  const context = fakeAgentContext([], []);
+  await agent.events.get("session_start")![0](undefined, context);
+  const tool = agent.tools.find((t) => t.name === "message_owner")!;
+  const call = (message: string) =>
+    tool.execute("msg", { message }, undefined, undefined, context);
+  await assert.rejects(
+    call("late"),
+    /cannot message its owner: no active assignment/,
+  );
+  await assert.rejects(call("   "), /non-whitespace/);
+  assert.deepEqual(listOwnerMessageIds(mailbox), []);
+  agent.events.get("session_shutdown")?.[0]();
+  resetAgentMailbox(mailbox);
+});
+
+test("message_owner bounds queued undelivered messages", async () => {
+  const mailbox = setAgentEnvironment("owner-msg-cap");
+  writeAgentState(mailbox, managedState("owner-msg-cap", REQUEST_ID));
+  const agent = fakePi();
+  registerExtension!(agent.pi as never);
+  const context = fakeAgentContext([], []);
+  await agent.events.get("session_start")![0](undefined, context);
+  const tool = agent.tools.find((t) => t.name === "message_owner")!;
+  const call = (message: string) =>
+    tool.execute("msg", { message }, undefined, undefined, context);
+  for (let i = 0; i < OWNER_MESSAGE_PENDING_LIMIT; i++) await call("m" + i);
+  await assert.rejects(
+    call("one too many"),
+    /already has \d+ owner messages awaiting delivery\. Wait for the owner/,
+  );
+  assert.equal(
+    listOwnerMessageIds(mailbox).length,
+    OWNER_MESSAGE_PENDING_LIMIT,
+  );
+  agent.events.get("session_shutdown")?.[0]();
+  resetAgentMailbox(mailbox);
+});
+
+test("message_owner embeds attached text files and rejects unreadable ones", async () => {
+  const mailbox = setAgentEnvironment("owner-msg-files");
+  writeAgentState(mailbox, managedState("owner-msg-files", REQUEST_ID));
+  const agent = fakePi();
+  registerExtension!(agent.pi as never);
+  const context = fakeAgentContext([], []);
+  await agent.events.get("session_start")![0](undefined, context);
+  const tool = agent.tools.find((t) => t.name === "message_owner")!;
+  const file = join(testTmpRoot, "owner-msg-evidence.md");
+  realFs.mkdirSync(testTmpRoot, { recursive: true });
+  realFs.writeFileSync(file, "EVIDENCE-BODY");
+  await tool.execute(
+    "msg",
+    { message: "see attached", files: [file] },
+    undefined,
+    undefined,
+    context,
+  );
+  const [id] = listOwnerMessageIds(mailbox);
+  const text = readOwnerMessage(mailbox, id!)!.text;
+  assert.match(text, /EVIDENCE-BODY/);
+  assert.match(text, /see attached/);
+  await assert.rejects(
+    tool.execute(
+      "msg",
+      { message: "x", files: [join(testTmpRoot, "missing-file.md")] },
+      undefined,
+      undefined,
+      context,
+    ),
+  );
+  assert.equal(listOwnerMessageIds(mailbox).length, 1);
+  agent.events.get("session_shutdown")?.[0]();
+  resetAgentMailbox(mailbox);
 });

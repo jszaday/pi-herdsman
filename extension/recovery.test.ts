@@ -56,6 +56,8 @@ import support, {
   truncateModelText,
   agentMailboxPath,
   writeAsk,
+  writeOwnerMessage,
+  listOwnerMessageIds,
   writeRequest,
   writeResult,
   writeAgentState,
@@ -5349,6 +5351,128 @@ test("delivered owner asks repeat without duplicating first delivery", async (t)
   );
   pi.events.get("session_shutdown")?.[0]();
   resetAgentMailbox(mailbox);
+});
+
+test("owner messages reach the exact owner as steering messages and are then removed", async () => {
+  const cases = [
+    {
+      name: "owner idle",
+      idle: true,
+      deliveredBefore: false,
+      tamper: undefined,
+      delivered: 1,
+      remains: false,
+    },
+    {
+      name: "owner working",
+      idle: false,
+      deliveredBefore: false,
+      tamper: undefined,
+      delivered: 1,
+      remains: false,
+    },
+    {
+      name: "already in owner branch",
+      idle: true,
+      deliveredBefore: true,
+      tamper: undefined,
+      delivered: 0,
+      remains: false,
+    },
+    {
+      name: "pane identity mismatch fails closed",
+      idle: true,
+      deliveredBefore: false,
+      tamper: "paneId",
+      delivered: 0,
+      remains: true,
+    },
+    {
+      name: "run identity mismatch fails closed",
+      idle: true,
+      deliveredBefore: false,
+      tamper: "runId",
+      delivered: 0,
+      remains: true,
+    },
+  ] as const;
+  for (const [index, scenario] of cases.entries()) {
+    setLeadEnvironment();
+    const label = "owner-message-delivery-" + index;
+    const identity = recoveryIdentity(label);
+    const state = managedState(label, REQUEST_ID, identity);
+    const mailbox = agentMailboxPath(WORKSPACE, label);
+    writeAgentState(mailbox, state);
+    const record = {
+      version: 5 as const,
+      messageId: randomUUID(),
+      requestId: REQUEST_ID,
+      runId: state.runId,
+      ownerSessionId: state.ownerSessionId,
+      workspaceId: state.workspaceId,
+      agentLabel: state.agentLabel,
+      paneId: state.paneId,
+      piSessionId: state.piSessionId,
+      text: "Disk is nearly full",
+      createdAt: Date.now(),
+    };
+    writeOwnerMessage(mailbox, {
+      ...record,
+      ...(scenario.tamper === "paneId"
+        ? { paneId: "other-pane" }
+        : scenario.tamper === "runId"
+          ? { runId: randomUUID() }
+          : {}),
+    });
+    const entries: unknown[] = scenario.deliveredBefore
+      ? [
+          {
+            customType: "pi-herdsman-agent-owner-message",
+            details: { ...record },
+          },
+        ]
+      : [];
+    const pi = fakePi({
+      entries,
+      persistMessages: true,
+      exec: leadExec(
+        label,
+        "working",
+        DEFAULT_PI_SESSION_ID,
+        undefined,
+        DEFAULT_PI_SESSION_ID,
+        identity,
+      ),
+    });
+    registerExtension!(pi.pi as never);
+    const context = fakeContext(entries);
+    context.isIdle = () => scenario.idle;
+    await pi.events.get("session_start")![0](undefined, context);
+    await new Promise((resolve) => setImmediate(resolve));
+    const sent = pi.sentMessageCalls.filter(
+      ({ message }) =>
+        (message as any).customType === "pi-herdsman-agent-owner-message",
+    ) as any[];
+    assert.equal(sent.length, scenario.delivered, scenario.name);
+    if (scenario.delivered) {
+      assert.deepEqual(
+        sent[0].options,
+        { triggerTurn: true, deliverAs: "steer" },
+        scenario.name,
+      );
+      assert.equal(sent[0].message.details.messageId, record.messageId);
+      assert.match(sent[0].message.content, /no reply is pending or required/);
+      assert.match(sent[0].message.content, /Disk is nearly full/);
+      assert.match(sent[0].message.content, /steer_agent/);
+    }
+    assert.equal(
+      listOwnerMessageIds(mailbox).length,
+      scenario.remains ? 1 : 0,
+      scenario.name,
+    );
+    pi.events.get("session_shutdown")?.[0]();
+    resetAgentMailbox(mailbox);
+  }
 });
 
 test("old unacknowledged requests get attention without being resubmitted", async () => {

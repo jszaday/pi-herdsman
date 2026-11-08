@@ -4548,6 +4548,53 @@ export function renderAgentAskMessage(
   return renderMessageBox(content, theme, options.outputPad ?? 0);
 }
 
+export function renderAgentOwnerMessage(
+  message: { details?: unknown },
+  options: { expanded?: boolean; outputPad?: number },
+  theme: any,
+): TuiBox {
+  const details =
+    message.details && typeof message.details === "object"
+      ? (message.details as Record<string, unknown>)
+      : {};
+  const label = value(details.agentLabel) || "agent";
+  const text = value(details.text) || "(empty message)";
+  const heading = `${humanText(theme, "accent", "›")} ${theme.bold(label)} message (no reply pending)`;
+  const content = new Container();
+  content.addChild(new Text(heading, 0, 0));
+  if (options.expanded) {
+    content.addChild(new Spacer(1));
+    content.addChild(new Markdown(text, 0, 0, getMarkdownTheme()));
+    const metadata = [
+      ...(value(details.messageId)
+        ? [`message: ${value(details.messageId)}`]
+        : []),
+      ...(value(details.requestId)
+        ? [`request: ${value(details.requestId)}`]
+        : []),
+      ...(value(details.piSessionId)
+        ? [`session: ${value(details.piSessionId)}`]
+        : []),
+      ...(value(details.paneId) ? [`pane: ${value(details.paneId)}`] : []),
+    ];
+    if (metadata.length) {
+      content.addChild(new Spacer(1));
+      content.addChild(new WidthSafeText(metadata.join("\n"), 0, 0));
+    }
+  } else {
+    content.addChild(
+      new Markdown(
+        `  ${collapseDisplayText(text, 240) ?? text}`,
+        0,
+        0,
+        getMarkdownTheme(),
+        { color: (t) => humanText(theme, "muted", t) },
+      ),
+    );
+  }
+  return renderMessageBox(content, theme, options.outputPad ?? 0);
+}
+
 export function renderAgentAttentionMessage(
   message: { details?: unknown },
   options: { expanded?: boolean; outputPad?: number },

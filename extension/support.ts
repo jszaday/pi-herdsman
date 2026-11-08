@@ -246,6 +246,11 @@ export const {
   controlMarker,
   listAgentStates,
   readPendingAsk,
+  listOwnerMessageIds,
+  readOwnerMessage,
+  writeOwnerMessage,
+  removeOwnerMessage,
+  OWNER_MESSAGE_PENDING_LIMIT,
   readUnacknowledgedRequest,
   readRequest,
   readResult,
@@ -2209,6 +2214,10 @@ export async function assertRestrictiveManagedDefinition(
     assert.equal(agent.tools.filter((tool) => tool.name === "agent").length, 0);
     assert.equal(
       agent.tools.filter((tool) => tool.name === "ask_owner").length,
+      1,
+    );
+    assert.equal(
+      agent.tools.filter((tool) => tool.name === "message_owner").length,
       1,
     );
     await agent.events.get("session_start")![0](

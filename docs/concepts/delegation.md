@@ -25,7 +25,7 @@ final decision authority for its assignment.
 
 A managed Agent may delegate to the definitions in its effective
 `agents` allowlist only when delegation is enabled by its tool policy. Every
-managed agent receives `ask_owner`; qualifying delegating agents also receive
+managed agent receives `ask_owner` and `message_owner`; qualifying delegating agents also receive
 Agent ownership tools. See the [agent-definition schema](../reference/agent-definition-schema.md#managed-agent-coordination-tools)
 for the exact eligibility, exclusion, and mandatory-tool rules.
 
@@ -158,6 +158,10 @@ child must itself be validly blocked on an owner question. Ordinary active work
 or an undelivered result still blocks escalation. Questions are not
 automatically forwarded through an ownership chain.
 
+An agent may also send its exact direct owner a non-blocking message through
+`message_owner` at any time, including while its own direct agents are running.
+It is not gated by direct-agent work and creates no pending question.
+
 ## Closing
 
 Closing a delegating agent cascades through its directly owned agents first.
@@ -167,5 +171,6 @@ closed, the delegating agent is preserved rather than destructively guessing.
 ## See also
 
 - [`ask_owner` API](../reference/ask-owner.md)
+- [`message_owner` API](../reference/message-owner.md)
 - [Lifecycle](lifecycle.md)
 - [Handoffs and files](../guides/handoffs.md)

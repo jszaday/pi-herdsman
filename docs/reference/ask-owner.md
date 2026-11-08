@@ -5,7 +5,8 @@
 `ask_owner` is mandatory managed agent infrastructure for one direct-owner
 decision required to continue the current assignment.
 
-It is not a generic messaging channel.
+It is not a generic messaging channel. To send the owner information without
+blocking, use [`message_owner`](message-owner.md).
 
 ## Availability
 
@@ -137,5 +138,6 @@ Closing the agent abandons the pending question as part of agent teardown.
 ## See also
 
 - [`reply_agent`](agent.md#reply_agent)
+- [`message_owner`](message-owner.md)
 - [Lifecycle](../concepts/lifecycle.md)
 - [Delegation](../concepts/delegation.md)

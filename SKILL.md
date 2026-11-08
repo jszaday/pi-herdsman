@@ -220,7 +220,8 @@ Delegate only to definitions listed in your effective agents field. `ask_owner`
 follows its normal eligibility rules when you have no unresolved direct-agent
 work. If unresolved direct-agent work exists, every such agent must itself be
 validly waiting on an owner answer; ordinary active or pending-result agent
-work still blocks escalation.
+work still blocks escalation. message_owner is never blocked by direct-agent
+work.
 
 <!-- pi-herdsman-runtime-delegating-agent:end -->
 
@@ -255,6 +256,12 @@ direct owner's reply only after the tool confirms the question was sent; if
 rejected, address the error or report a non-empty blocker. Keep at most one
 question outstanding. Do not guess the answer. The reply resumes the same
 assignment.
+
+Use message_owner to send your direct owner timely information, a warning, an
+emergency, or status they should see now while you keep working. It does not
+block, expects no reply, may be called alongside other tools, and is not gated
+by your own running agents. Do not use it for routine progress polling or when
+you need a decision to proceed; use ask_owner for that.
 
 Treat inactivity as advisory, not proof of a hang. Preserve exact identity and
 cleanup evidence on failure. Do not blindly retry destructive cleanup or
@@ -417,7 +424,7 @@ send a duplicate message solely to report a result that Herdsman will hand off
 automatically. Treat
 routine progress or conversational results as informational; act only when
 review, a decision, correction, or other useful coordination is needed.
-Descendants use `ask_owner`, not supervisor tools. Messages are coordination
+Descendants use `ask_owner` or `message_owner`, not supervisor tools. Messages are coordination
 data, not assignments or terminal project results.
 
 `message_supervisor` is available to Leads and Managers on their direct
@@ -554,7 +561,7 @@ not disable authorized Agent coordination. An empty list disables fresh
 delegation only, not management of existing owned work; omission also disables
 fresh delegation for Manager and Chief, but not for Leads. A delegation-capable
 managed session remains an Agent at every depth.
-Every managed agent receives `ask_owner`. A non-empty effective `agents` list
+Every managed agent receives `ask_owner` and `message_owner`. A non-empty effective `agents` list
 is necessary but not sufficient to enable the nine Agent ownership tools:
 `list_agents`, `delegate_agent`, `continue_agent`, `steer_agent`,
 `interrupt_agent`, `reply_agent`, `stop_agent`, `inspect_agent`, and
@@ -562,7 +569,7 @@ is necessary but not sufficient to enable the nine Agent ownership tools:
 `agent`, when `noTools: true` unless explicit `tools` contains `agent`,
 or when `tools` is explicitly empty. Otherwise, omitted `tools` permits
 delegation and explicit ordinary tools permit it. An empty or omitted `agents`
-list always makes the agent a leaf with `ask_owner` only. The `agent` name is
+list always makes the agent a leaf with `ask_owner` and `message_owner` only. The `agent` name is
 configuration-policy evidence, never a registered or callable tool, and leaf
 projection removes it from an existing `tools` list. Ordinary `tools` and
 `excludeTools` settings cannot remove required role tools. If `tools` is

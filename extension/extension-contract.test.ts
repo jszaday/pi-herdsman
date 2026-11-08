@@ -544,6 +544,11 @@ test("semantic coordination tools expose exact strict object contracts", () => {
     "ordinary Leads do not get ask_owner",
   );
   assert.equal(
+    tools.has("message_owner"),
+    false,
+    "ordinary Leads do not get message_owner",
+  );
+  assert.equal(
     tools.has("attach_handoff"),
     false,
     "ordinary Leads do not get attach_handoff",
@@ -608,7 +613,7 @@ test("semantic coordination tools expose exact strict object contracts", () => {
   registerExtension!(leaf.pi as never);
   assert.deepEqual(
     leaf.tools.map((tool) => tool.name).sort(),
-    ["ask_owner", "attach_handoff", "read_evidence"].sort(),
+    ["ask_owner", "attach_handoff", "message_owner", "read_evidence"].sort(),
   );
   const askOwner = leaf.tools.find((tool) => tool.name === "ask_owner")!;
   assertPortableToolSchema(askOwner, "model-only");
@@ -624,6 +629,23 @@ test("semantic coordination tools expose exact strict object contracts", () => {
     true,
   );
   assert.equal(Value.Check(askOwner.parameters, {}), false);
+  const messageOwner = leaf.tools.find(
+    (tool) => tool.name === "message_owner",
+  )!;
+  assertPortableToolSchema(messageOwner, "model-only");
+  assert.deepEqual(messageOwner.parameters.required, ["message"]);
+  for (const [input, valid] of [
+    [{ message: "heads up" }, true],
+    [{ message: "heads up", files: ["a.md"] }, true],
+    [{}, false],
+    [{ question: "heads up" }, false],
+    [{ message: "heads up", wait: false }, false],
+  ] as const)
+    assert.equal(
+      Value.Check(messageOwner.parameters, input),
+      valid,
+      JSON.stringify(input),
+    );
   assert.equal(
     leaf.tools.some((tool) => tool.name === "update_assignment_evidence"),
     false,
@@ -929,6 +951,7 @@ test("registered lead and unmanaged roles expose the correct surface", async () 
       "pi-herdsman-agent-ask",
       "pi-herdsman-agent-attention",
       "pi-herdsman-agent-lost",
+      "pi-herdsman-agent-owner-message",
       "pi-herdsman-agent-result",
       "pi-herdsman-agent-stale",
       "pi-herdsman-project_message",

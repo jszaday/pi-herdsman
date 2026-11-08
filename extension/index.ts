@@ -198,6 +198,7 @@ import {
   renderStopSummary,
   renderCompletionMessage,
   renderAgentAskMessage,
+  renderAgentOwnerMessage,
   renderAgentStaleMessage,
   renderAgentLostMessage,
   renderAgentAttentionMessage,
@@ -714,6 +715,13 @@ function registerExtensionImpl(
       ),
   );
   pi.registerMessageRenderer(
+    "pi-herdsman-agent-owner-message",
+    (message, options, theme) =>
+      expandablePresentation(options.expanded, (expanded) =>
+        renderAgentOwnerMessage(message, { ...options, expanded }, theme),
+      ),
+  );
+  pi.registerMessageRenderer(
     "pi-herdsman-agent-stale",
     (message, options, theme) =>
       expandablePresentation(options.expanded, (expanded) =>
@@ -875,6 +883,26 @@ function registerExtensionImpl(
           },
         },
         { triggerTurn: true },
+      );
+    },
+    sendOwnerMessage: (_ctx, message) => {
+      pi.sendMessage(
+        {
+          customType: "pi-herdsman-agent-owner-message",
+          content: `Agent ${message.agentLabel} sent you a message (no reply is pending or required; the agent is not blocked and keeps working). You may answer with steer_agent with agent="${message.agentLabel}".\n\n${message.text}`,
+          display: true,
+          details: {
+            messageId: message.messageId,
+            text: message.text,
+            requestId: message.requestId,
+            runId: message.runId,
+            agentLabel: message.agentLabel,
+            workspaceId: message.workspaceId,
+            paneId: message.paneId,
+            piSessionId: message.piSessionId,
+          },
+        },
+        { triggerTurn: true, deliverAs: "steer" },
       );
     },
     sessionRetired: (ctx, runtime) => {

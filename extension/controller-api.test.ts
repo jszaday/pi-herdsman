@@ -14541,11 +14541,22 @@ test("managed restricted tool policies add required tools without unrelated tool
   const cases = [
     {
       frontmatter: { noTools: true },
-      expected: ["ask_owner", "read_evidence", "attach_handoff"],
+      expected: [
+        "ask_owner",
+        "message_owner",
+        "read_evidence",
+        "attach_handoff",
+      ],
     },
     {
       frontmatter: { tools: ["read"] },
-      expected: ["read", "ask_owner", "read_evidence", "attach_handoff"],
+      expected: [
+        "read",
+        "ask_owner",
+        "message_owner",
+        "read_evidence",
+        "attach_handoff",
+      ],
     },
   ];
   for (const { frontmatter, expected } of cases) {

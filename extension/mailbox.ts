@@ -128,6 +128,21 @@ export interface AskRecord {
   resultBindings?: ResultBinding[];
   createdAt: number;
 }
+/** Fire-and-forget upward message on the ownership edge; never correlated to an ask. */
+export interface OwnerMessageRecord {
+  version: 5;
+  messageId: string;
+  requestId: string;
+  runId: string;
+  ownerSessionId: string;
+  workspaceId: string;
+  agentLabel: string;
+  paneId: string;
+  piSessionId: string;
+  text: string;
+  resultBindings?: ResultBinding[];
+  createdAt: number;
+}
 export interface ResultRecord {
   version: 5;
   runId: string;
@@ -174,7 +189,9 @@ const UUID =
 const PREFIX = "__PI_HERDSMAN_AGENT_V5__:";
 /** Fixed protocol safety ceiling; configuration only limits new submissions. */
 export const MAILBOX_PROTOCOL_LIMIT_BYTES = 1024 * 1024;
-export function mailboxRecordBytes(record: RequestRecord | AskRecord): number {
+export function mailboxRecordBytes(
+  record: RequestRecord | AskRecord | OwnerMessageRecord,
+): number {
   return Buffer.byteLength(JSON.stringify(record), "utf8");
 }
 export class MailboxClaimOccupiedError extends Error {
@@ -186,6 +203,7 @@ const LIMITS = {
   state: 64 * 1024,
   request: MAILBOX_PROTOCOL_LIMIT_BYTES,
   ask: MAILBOX_PROTOCOL_LIMIT_BYTES,
+  ownerMessage: MAILBOX_PROTOCOL_LIMIT_BYTES,
   result: 4 * 1024 * 1024,
 };
 const root = join(herdsmanDataRoot(), "runtime", "mailboxes-v5");
@@ -560,10 +578,10 @@ function validate(
             "taskEvidenceId",
             "createdAt",
           ]
-        : kind === "ask"
+        : kind === "ownerMessage"
           ? [
               "version",
-              "askId",
+              "messageId",
               "requestId",
               "runId",
               "ownerSessionId",
@@ -571,26 +589,41 @@ function validate(
               "agentLabel",
               "paneId",
               "piSessionId",
-              "question",
+              "text",
               "resultBindings",
               "createdAt",
             ]
-          : [
-              "version",
-              "runId",
-              "requestId",
-              "ownerSessionId",
-              "workspaceId",
-              "agentLabel",
-              "paneId",
-              "rootSessionId",
-              "status",
-              "text",
-              "error",
-              "resultBindings",
-              "contextUsage",
-              "completedAt",
-            ];
+          : kind === "ask"
+            ? [
+                "version",
+                "askId",
+                "requestId",
+                "runId",
+                "ownerSessionId",
+                "workspaceId",
+                "agentLabel",
+                "paneId",
+                "piSessionId",
+                "question",
+                "resultBindings",
+                "createdAt",
+              ]
+            : [
+                "version",
+                "runId",
+                "requestId",
+                "ownerSessionId",
+                "workspaceId",
+                "agentLabel",
+                "paneId",
+                "rootSessionId",
+                "status",
+                "text",
+                "error",
+                "resultBindings",
+                "contextUsage",
+                "completedAt",
+              ];
   if (Object.keys(v).some((key) => !allowed.includes(key)))
     throw new Error("Unknown mailbox field");
   if (
@@ -610,9 +643,9 @@ function validate(
           "piSessionId",
           "cwd",
         ]
-      : kind === "ask"
+      : kind === "ask" || kind === "ownerMessage"
         ? [
-            "askId",
+            kind === "ask" ? "askId" : "messageId",
             "requestId",
             "runId",
             "ownerSessionId",
@@ -635,7 +668,8 @@ function validate(
   if (
     !UUID.test(v.runId) ||
     (kind !== "state" && !UUID.test(v.requestId)) ||
-    (kind === "ask" && !UUID.test(v.askId))
+    (kind === "ask" && !UUID.test(v.askId)) ||
+    (kind === "ownerMessage" && !UUID.test(v.messageId))
   )
     throw new Error("Invalid mailbox UUID");
   const finite = (field: string) => {
@@ -877,6 +911,16 @@ function validate(
     )
       throw new Error("Invalid request evidence assignment identity");
     finite("createdAt");
+  } else if (kind === "ownerMessage") {
+    if (typeof v.text !== "string" || !v.text.trim())
+      throw new Error("Invalid owner message text");
+    if (
+      v.resultBindings !== undefined &&
+      (!Array.isArray(v.resultBindings) ||
+        !v.resultBindings.every(isResultBinding))
+    )
+      throw new Error("Invalid owner message result bindings");
+    finite("createdAt");
   } else if (kind === "ask") {
     if (typeof v.question !== "string" || !v.question.trim())
       throw new Error("Invalid ask question");
@@ -1030,7 +1074,7 @@ export function resetAgentMailbox(path: string): void {
     "ask.json",
     "bootstrap.json",
     ...readdirSync(path).filter((x: string) =>
-      /^(request|result)-.*\.json$/.test(x),
+      /^(request|result|owner-message)-.*\.json$/.test(x),
     ),
   ]) {
     try {
@@ -1238,6 +1282,56 @@ export function readPendingAsk(
 export function removeAsk(path: string): void {
   try {
     unlinkSync(file(path, "ask.json"));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+}
+/** Maximum undelivered `message_owner` records one agent may have queued at once. */
+export const OWNER_MESSAGE_PENDING_LIMIT = 8;
+const OWNER_MESSAGE_FILE = /^owner-message-([0-9a-f-]{36})\.json$/i;
+/** Ids of undelivered owner messages in the mailbox, oldest filename order not implied. */
+export function listOwnerMessageIds(path: string): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(path);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
+  }
+  return names.flatMap((name) => {
+    const match = OWNER_MESSAGE_FILE.exec(name);
+    return match && UUID.test(match[1]!) ? [match[1]!] : [];
+  });
+}
+export function writeOwnerMessage(
+  path: string,
+  message: OwnerMessageRecord,
+): void {
+  assertFileId(message.messageId);
+  atomic(
+    file(path, `owner-message-${message.messageId}.json`),
+    message,
+    "ownerMessage",
+  );
+}
+export function readOwnerMessage(
+  path: string,
+  messageId: string,
+): OwnerMessageRecord | undefined {
+  assertFileId(messageId);
+  const v = read<OwnerMessageRecord>(
+    file(path, `owner-message-${messageId}.json`),
+    "ownerMessage",
+  );
+  if (v) validate(v, "ownerMessage");
+  if (v && v.messageId !== messageId)
+    throw new Error("Owner message filename identity mismatch");
+  return v;
+}
+export function removeOwnerMessage(path: string, messageId: string): void {
+  assertFileId(messageId);
+  try {
+    unlinkSync(file(path, `owner-message-${messageId}.json`));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }

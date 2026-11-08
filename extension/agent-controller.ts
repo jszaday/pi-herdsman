@@ -40,6 +40,9 @@ import {
   removeResult,
   removeAgentMailbox,
   readPendingAsk,
+  listOwnerMessageIds,
+  readOwnerMessage,
+  removeOwnerMessage,
   parseControlMarker,
   readResult,
   readUnacknowledgedRequest,
@@ -51,6 +54,7 @@ import {
   waitForStartupOutcome,
   unacknowledgedRequestExists,
   type AskRecord,
+  type OwnerMessageRecord,
   type ResultRecord,
   type ManagedAgentState,
   type RequestRecord,
@@ -709,6 +713,12 @@ rejected, address the error or report a non-empty blocker. Keep at most one
 question outstanding. Do not guess the answer. The reply resumes the same
 assignment.
 
+Use message_owner to send your direct owner timely information, a warning, an
+emergency, or status they should see now while you keep working. It does not
+block, expects no reply, may be called alongside other tools, and is not gated
+by your own running agents. Do not use it for routine progress polling or when
+you need a decision to proceed; use ask_owner for that.
+
 Treat inactivity as advisory, not proof of a hang. Preserve exact identity and
 cleanup evidence on failure. Do not blindly retry destructive cleanup or
 silently take over delegated work.
@@ -1051,7 +1061,8 @@ authority. Delegate only to definitions listed in your effective agents field.
 ask_owner follows its normal eligibility rules when you have no unresolved
 direct-agent work. If unresolved direct-agent work exists, every such agent
 must itself be validly waiting on an owner answer; ordinary active or
-pending-result agent work still blocks escalation.`;
+pending-result agent work still blocks escalation. message_owner is never
+blocked by direct-agent work.`;
 type ResolvedAssignmentSession = {
   path: string;
   id: string;
@@ -2195,6 +2206,27 @@ export function hasDeliveredAsk(
       details?.workspaceId === ask.workspaceId &&
       details?.paneId === ask.paneId &&
       details?.piSessionId === ask.piSessionId
+    );
+  });
+}
+
+export function hasDeliveredOwnerMessage(
+  entries: readonly unknown[],
+  record: OwnerMessageRecord,
+): boolean {
+  return entries.some((entry: any) => {
+    const message = entry?.message;
+    const details = entry?.details ?? message?.details;
+    return (
+      (entry?.customType === "pi-herdsman-agent-owner-message" ||
+        message?.customType === "pi-herdsman-agent-owner-message") &&
+      details?.messageId === record.messageId &&
+      details?.requestId === record.requestId &&
+      details?.runId === record.runId &&
+      details?.agentLabel === record.agentLabel &&
+      details?.workspaceId === record.workspaceId &&
+      details?.paneId === record.paneId &&
+      details?.piSessionId === record.piSessionId
     );
   });
 }
@@ -4265,6 +4297,7 @@ export type AgentControllerOptions = {
     details: Record<string, unknown>,
   ): void;
   sendAskMessage(ctx: ExtensionContext, ask: AskRecord): void;
+  sendOwnerMessage(ctx: ExtensionContext, message: OwnerMessageRecord): void;
   sessionRetired(ctx: ExtensionContext, runtime: Runtime): boolean | undefined;
   appendError(ctx: ExtensionContext, kind: string, error: unknown): void;
   onChanged(): void;
@@ -6567,6 +6600,7 @@ export function createAgentController(
       if (!active || runtimes.get(runtime.label) !== runtime) return;
       try {
         deliverPendingAsk(runtime, context, signal);
+        deliverOwnerMessages(runtime, context, signal);
       } catch (error) {
         if (
           error instanceof OperationError &&
@@ -6578,7 +6612,10 @@ export function createAgentController(
     };
     const stop = observeMailbox(
       runtime.mailboxPath,
-      (name) => name === "state.json" || name === "ask.json",
+      (name) =>
+        name === "state.json" ||
+        name === "ask.json" ||
+        name.startsWith("owner-message-"),
       check,
       (error) => options.reportWatcherError(context, error),
     );
@@ -6962,6 +6999,110 @@ export function createAgentController(
     } finally {
       askDeliveryInFlight.delete(key);
     }
+  };
+  // Owner messages are fire-and-forget: delivered as soon as the owner session
+  // can take a steering message (idle or working), then the record is removed.
+  const deliverOwnerMessages = (
+    runtime: Runtime,
+    context: ExtensionContext,
+    signal?: AbortSignal,
+  ): void => {
+    if (!active) return;
+    const ids = listOwnerMessageIds(runtime.mailboxPath);
+    if (!ids.length) return;
+    const state = readAgentState(runtime.mailboxPath);
+    if (
+      !state ||
+      runtimes.get(runtime.label) !== runtime ||
+      context.sessionManager.getSessionId() !== runtime.ownerSessionId ||
+      state.runId !== runtime.runId ||
+      state.ownerSessionId !== runtime.ownerSessionId ||
+      state.workspaceId !== runtime.workspaceId ||
+      state.agentLabel !== runtime.label ||
+      state.paneId !== runtime.paneId ||
+      !sameCwd(state.cwd, runtime.cwd) ||
+      state.piSessionId !== runtime.piSessionId ||
+      !sameSessionPath(state.piSessionFile, runtime.piSessionFile)
+    )
+      return;
+    const records: OwnerMessageRecord[] = [];
+    for (const id of ids) {
+      const key = `${runtime.mailboxPath}:${id}`;
+      if (askDeliveryInFlight.has(key)) continue;
+      let record: OwnerMessageRecord | undefined;
+      try {
+        record = readOwnerMessage(runtime.mailboxPath, id);
+      } catch (error) {
+        options.appendError(context, "pi_herdsman_cleanup_error", error);
+        continue;
+      }
+      if (
+        !record ||
+        record.runId !== state.runId ||
+        record.ownerSessionId !== state.ownerSessionId ||
+        record.workspaceId !== state.workspaceId ||
+        record.agentLabel !== state.agentLabel ||
+        record.paneId !== state.paneId ||
+        record.piSessionId !== state.piSessionId
+      )
+        continue;
+      records.push(record);
+    }
+    records.sort((a, b) => a.createdAt - b.createdAt);
+    for (const record of records) {
+      const key = `${runtime.mailboxPath}:${record.messageId}`;
+      askDeliveryInFlight.add(key);
+      try {
+        if (
+          !hasDeliveredOwnerMessage(context.sessionManager.getBranch(), record)
+        ) {
+          importResultBindings(
+            pi,
+            context,
+            record.resultBindings,
+            "message_owner",
+          );
+          options.sendOwnerMessage(context, record);
+        }
+        removeOwnerMessage(runtime.mailboxPath, record.messageId);
+        cancelAskRetry(runtime, record.messageId);
+        clearCleanupError(runtime, "Owner message delivery failed");
+      } catch (error) {
+        scheduleOwnerMessageRetry(runtime, context, record, signal, error);
+      } finally {
+        askDeliveryInFlight.delete(key);
+      }
+    }
+  };
+  const scheduleOwnerMessageRetry = (
+    runtime: Runtime,
+    context: ExtensionContext,
+    record: OwnerMessageRecord,
+    signal: AbortSignal | undefined,
+    error: unknown,
+  ) => {
+    markRetryAttempted(error);
+    const key = `${runtime.mailboxPath}:${record.messageId}`;
+    if (askDeliveryRetries.has(key)) return;
+    runtime.cleanupError = `Owner message delivery failed; retrying: ${String(error)}`;
+    askDeliveryRetries.set(
+      key,
+      setTimeout(() => {
+        askDeliveryRetries.delete(key);
+        if (!active || runtimes.get(runtime.label) !== runtime) return;
+        try {
+          deliverOwnerMessages(runtime, context, signal);
+        } catch (retryError) {
+          scheduleOwnerMessageRetry(
+            runtime,
+            context,
+            record,
+            signal,
+            retryError,
+          );
+        }
+      }, 250),
+    );
   };
   const resultCleanupReady = (
     runtime: Runtime,
@@ -7366,6 +7507,9 @@ export function createAgentController(
             : {}),
           error: result.error,
         };
+        try {
+          deliverOwnerMessages(runtime, context, signal);
+        } catch {}
         options.sendResultMessage(context, runtime, result, content, details);
         resultDeliveryEvidence.add(evidenceKey);
       }
@@ -7402,6 +7546,11 @@ export function createAgentController(
     }
     for (const runtime of runtimes.values())
       if (runtime.ownerSessionId === ownerId) {
+        try {
+          deliverOwnerMessages(runtime, context, signal);
+        } catch (error) {
+          options.appendError(context, "pi_herdsman_cleanup_error", error);
+        }
         try {
           deliverPendingAsk(runtime, context, signal);
         } catch (error) {

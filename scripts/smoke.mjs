@@ -7708,6 +7708,25 @@ export function assertDeepChainEvidence(sessions) {
     ).length === 1,
     "deep-chain depth-3 owner must reply to the leaf's ask",
   );
+  requireSmokeEvidence(
+    successfulCalls(
+      "message_owner",
+      (args) => args?.message === "SMOKE_DEEP_NOTICE",
+    ).length === 1,
+    "deep-chain level-2 Agent must send one message_owner while its child runs",
+  );
+  requireSmokeEvidence(
+    sessions.some(({ entries }) =>
+      entries.some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === "pi-herdsman-agent-owner-message" &&
+          entry.details?.agentLabel === "smoke-deep-2" &&
+          messageText(entry.content).includes("SMOKE_DEEP_NOTICE"),
+      ),
+    ),
+    "deep-chain level-1 owner must receive the level-2 message_owner message",
+  );
   const leaf = delegations.find(({ label }) => label === "smoke-deep-4");
   requireSmokeEvidence(
     leaf?.result.includes("L4:SMOKE_DEEP_LEAF"),

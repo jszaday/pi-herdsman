@@ -30,6 +30,10 @@ import {
   readRequest,
   readUnacknowledgedRequest,
   readAsk,
+  readOwnerMessage,
+  listOwnerMessageIds,
+  writeOwnerMessage,
+  removeOwnerMessage,
   readPendingAsk,
   readResult,
   readAgentState,
@@ -55,6 +59,7 @@ import {
   agentMailboxPath,
   type RequestRecord,
   type AskRecord,
+  type OwnerMessageRecord,
   type ManagedAgentState,
   type ResultRecord,
 } from "./mailbox.ts";
@@ -421,6 +426,59 @@ test("asks and reply requests round-trip with strict correlation", () => {
   assert.deepEqual(readRequest(path, request.requestId), request);
   removeAsk(path);
   assert.equal(readAsk(path), undefined);
+});
+test("owner messages round-trip, validate strictly, and are removed by reset", () => {
+  const path = mkdtempSync(join(tmpdir(), "pi-herdsman-mailbox-test-"));
+  const message: OwnerMessageRecord = {
+    version: 5,
+    messageId: "66666666-6666-4666-8666-666666666666",
+    requestId: "77777777-7777-4777-8777-777777777777",
+    runId: state.runId,
+    ownerSessionId: state.ownerSessionId,
+    workspaceId: state.workspaceId,
+    agentLabel: state.agentLabel,
+    paneId: state.paneId,
+    piSessionId: state.piSessionId,
+    text: "Heads up: build is red",
+    createdAt: Date.now(),
+  };
+  assert.deepEqual(listOwnerMessageIds(path), []);
+  writeOwnerMessage(path, message);
+  assert.deepEqual(readOwnerMessage(path, message.messageId), message);
+  assert.deepEqual(listOwnerMessageIds(path), [message.messageId]);
+  assertPosixMode(join(path, `owner-message-${message.messageId}.json`), 0o600);
+  const invalid: Array<[string, Record<string, unknown>, RegExp]> = [
+    ["blank text", { text: "  " }, /Invalid owner message text/],
+    ["bad uuid", { messageId: "not-a-uuid" }, /Invalid request ID|UUID/],
+    ["extra field", { question: "x" }, /Unknown mailbox field/],
+    ["missing label", { agentLabel: "" }, /Invalid mailbox field: agentLabel/],
+    ["bad version", { version: 4 }, /protocol version/],
+    ["bad bindings", { resultBindings: [{ ref: 1 }] }, /result bindings/],
+  ];
+  for (const [name, patch, pattern] of invalid)
+    assert.throws(
+      () => writeOwnerMessage(path, { ...message, ...patch } as never),
+      pattern,
+      name,
+    );
+  assert.throws(
+    () =>
+      writeFileSync(
+        join(
+          path,
+          `owner-message-${"88888888-8888-4888-8888-888888888888"}.json`,
+        ),
+        JSON.stringify({ ...message }),
+      ) ?? readOwnerMessage(path, "88888888-8888-4888-8888-888888888888"),
+    /filename identity mismatch/,
+  );
+  removeOwnerMessage(path, "88888888-8888-4888-8888-888888888888");
+  removeOwnerMessage(path, message.messageId);
+  removeOwnerMessage(path, message.messageId);
+  assert.equal(readOwnerMessage(path, message.messageId), undefined);
+  writeOwnerMessage(path, message);
+  resetAgentMailbox(path);
+  assert.deepEqual(listOwnerMessageIds(path), []);
 });
 test("request and ask result bindings are strictly validated", () => {
   const path = mkdtempSync(join(tmpdir(), "pi-herdsman-mailbox-test-"));

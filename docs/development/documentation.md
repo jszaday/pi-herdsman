@@ -40,6 +40,7 @@ disagrees.
 | Container deployment                                   | [Container deployment](../guides/container-deployment.md)           |
 | Agent ownership contract                               | [Agent tools](../reference/agent.md)                                |
 | `ask_owner` contract                                   | [`ask_owner`](../reference/ask-owner.md)                            |
+| `message_owner` contract                               | [`message_owner`](../reference/message-owner.md)                    |
 | Staff and project-work contract                        | [Staff tools](../reference/staff.md)                                |
 | Supervisor and ask contract                            | [Supervisor tools](../reference/supervisor.md)                      |
 | Peer contract                                          | [Peer tools](../reference/peer.md)                                  |

@@ -49,6 +49,7 @@ import {
   retainSupervisionSelection,
   renderCompletionMessage,
   renderAgentAskMessage,
+  renderAgentOwnerMessage,
   renderAgentAttentionMessage,
   renderAgentStaleMessage,
   renderAgentLostMessage,
@@ -5172,6 +5173,32 @@ test("completion warnings preserve truncation and persistence evidence", () => {
     collapsedBoth.split("output truncated · result not saved · Ctrl+O").length,
     2,
   );
+});
+
+test("owner messages render as no-reply messages with identity only when expanded", () => {
+  const message = {
+    details: {
+      agentLabel: "implementer",
+      text: "Build is **red**; pausing.",
+      messageId: "message-id",
+      requestId: "request-id",
+      piSessionId: "session-id",
+      paneId: "pane-id",
+    },
+  };
+  const collapsed = renderedText(
+    renderAgentOwnerMessage(message, { expanded: false }, presentationTheme),
+  );
+  assert.match(collapsed, /implementer message \(no reply pending\)/);
+  assert.match(collapsed, /Build is red; pausing/);
+  assert.doesNotMatch(collapsed, /needs input|message-id|request-id|pane-id/);
+  const expanded = renderedText(
+    renderAgentOwnerMessage(message, { expanded: true }, presentationTheme),
+  );
+  assert.match(expanded, /message: message-id/);
+  assert.match(expanded, /request: request-id/);
+  assert.match(expanded, /session: session-id/);
+  assert.match(expanded, /pane: pane-id/);
 });
 
 test("ask, stale, and lost custom messages preserve attention semantics and identity boundaries", () => {

@@ -1371,10 +1371,11 @@ export function agentLaunchArgs(
         ? [
             ...AGENT_COORDINATION_TOOLS,
             "ask_owner",
+            "message_owner",
             "read_evidence",
             "attach_handoff",
           ]
-        : ["ask_owner", "read_evidence", "attach_handoff"]
+        : ["ask_owner", "message_owner", "read_evidence", "attach_handoff"]
       : []),
     ...(options.requiredTools ?? []),
   ].filter((tool, index, all) => all.indexOf(tool) === index);

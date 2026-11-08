@@ -1114,6 +1114,7 @@ test("enforces read-only managed launch policies and reviewer leaf projection", 
         "grep",
         "codemode",
         "ask_owner",
+        "message_owner",
         "read_evidence",
         "attach_handoff",
       ],
@@ -1131,6 +1132,7 @@ test("enforces read-only managed launch policies and reviewer leaf projection", 
         "source_check",
         "codemode",
         "ask_owner",
+        "message_owner",
         "read_evidence",
         "attach_handoff",
       ],
@@ -1145,6 +1147,7 @@ test("enforces read-only managed launch policies and reviewer leaf projection", 
         "codemode",
         ...AGENT_COORDINATION_TOOLS,
         "ask_owner",
+        "message_owner",
         "read_evidence",
         "attach_handoff",
       ],
@@ -1193,6 +1196,7 @@ test("enforces read-only managed launch policies and reviewer leaf projection", 
       "grep",
       "codemode",
       "ask_owner",
+      "message_owner",
       "read_evidence",
       "attach_handoff",
       "mcp__",
@@ -2037,6 +2041,7 @@ test("bundled generalist definition retains its declared tool policy", () => {
       "codemode",
       ...AGENT_COORDINATION_TOOLS,
       "ask_owner",
+      "message_owner",
       "read_evidence",
       "attach_handoff",
       "mcp__",
@@ -2137,7 +2142,7 @@ test("managed launch policy always includes ask_owner and attach_handoff", () =>
       { tools: ["read", " ask_owner", "read"] },
       [
         "--tools",
-        "read,ask_owner,read_evidence,attach_handoff,mcp__",
+        "read,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
         "--exclude-tools",
         "mcp__",
       ],
@@ -2147,7 +2152,7 @@ test("managed launch policy always includes ask_owner and attach_handoff", () =>
       [
         "--no-tools",
         "--tools",
-        "ask_owner,read_evidence,attach_handoff,mcp__",
+        "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
         "--exclude-tools",
         "mcp__",
       ],
@@ -2157,7 +2162,7 @@ test("managed launch policy always includes ask_owner and attach_handoff", () =>
       [
         "--no-tools",
         "--tools",
-        "read,ask_owner,read_evidence,attach_handoff,mcp__",
+        "read,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
         "--exclude-tools",
         "mcp__",
       ],
@@ -2167,7 +2172,7 @@ test("managed launch policy always includes ask_owner and attach_handoff", () =>
       [
         "--no-tools",
         "--tools",
-        "ask_owner,read_evidence,attach_handoff,mcp__",
+        "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
         "--exclude-tools",
         "mcp__",
       ],
@@ -2500,10 +2505,16 @@ test("keeps ordinary tool metadata separate from managed role tools", () => {
   const roleTools = [
     ...AGENT_COORDINATION_TOOLS,
     "ask_owner",
+    "message_owner",
     "read_evidence",
     "attach_handoff",
   ];
-  const leafTools = ["ask_owner", "read_evidence", "attach_handoff"];
+  const leafTools = [
+    "ask_owner",
+    "message_owner",
+    "read_evidence",
+    "attach_handoff",
+  ];
   const toolArgs = (frontmatter: Frontmatter) => {
     const args = make(frontmatter);
     const index = args.indexOf("--tools");
@@ -2596,7 +2607,10 @@ test("projects parent-launched definitions as exact leaf capabilities", () => {
     agentLaunchArgs(leaf, { managedAgent: true }).filter(
       (value) => value === "--tools" || value.includes("ask_owner"),
     ),
-    ["--tools", "read,bash,ask_owner,read_evidence,attach_handoff,mcp__"],
+    [
+      "--tools",
+      "read,bash,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
+    ],
   );
   const empty = projectAgentDefinition(
     {
@@ -2625,9 +2639,13 @@ test("projects parent-launched definitions as exact leaf capabilities", () => {
       (value) =>
         value === "--no-tools" ||
         value === "--tools" ||
-        value === "ask_owner,read_evidence,attach_handoff,mcp__",
+        value === "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
     ),
-    ["--no-tools", "--tools", "ask_owner,read_evidence,attach_handoff,mcp__"],
+    [
+      "--no-tools",
+      "--tools",
+      "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
+    ],
   );
   const denied = projectAgentDefinition(
     {
@@ -2659,7 +2677,7 @@ test("projects parent-launched definitions as exact leaf capabilities", () => {
       "--no-context-files",
       "--no-tools",
       "--tools",
-      "ask_owner,read_evidence,attach_handoff,mcp__",
+      "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "--exclude-tools",
       "mcp__",
       "--no-skills",
@@ -3083,61 +3101,61 @@ test("closed policies preserve native selectors and protect mandatory tools", ()
     [{ noBuiltinTools: true }, undefined, undefined, false],
     [
       { tools: ["read"] },
-      "read,ask_owner,read_evidence,attach_handoff,mcp__",
+      "read,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       false,
     ],
     [
       { tools: ["*search"] },
-      "*search,ask_owner,read_evidence,attach_handoff,mcp__",
+      "*search,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       false,
     ],
     [
       { tools: ["read", "mcp__github__*"] },
-      "read,mcp__github__*,ask_owner,read_evidence,attach_handoff",
+      "read,mcp__github__*,ask_owner,message_owner,read_evidence,attach_handoff",
       undefined,
       false,
     ],
     [
       { tools: ["list_mcp_resources"] },
-      "list_mcp_resources,ask_owner,read_evidence,attach_handoff,mcp__",
+      "list_mcp_resources,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       false,
     ],
     [
       { tools: [] },
-      "ask_owner,read_evidence,attach_handoff,mcp__",
+      "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       true,
     ],
     [
       { tools: [","] },
-      "ask_owner,read_evidence,attach_handoff,mcp__",
+      "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       true,
     ],
     [
       { noTools: true },
-      "ask_owner,read_evidence,attach_handoff,mcp__",
+      "ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       true,
     ],
     [
       { noTools: true, tools: ["read"] },
-      "read,ask_owner,read_evidence,attach_handoff,mcp__",
+      "read,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       true,
     ],
     [
       { tools: ["read"], excludeTools: ["ask_owner"] },
-      "read,ask_owner,read_evidence,attach_handoff,mcp__",
+      "read,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "mcp__",
       false,
     ],
     [
       { tools: ["read"], excludeTools: ["write*", "mcp__", "write*"] },
-      "read,ask_owner,read_evidence,attach_handoff,mcp__",
+      "read,ask_owner,message_owner,read_evidence,attach_handoff,mcp__",
       "write*,mcp__",
       false,
     ],

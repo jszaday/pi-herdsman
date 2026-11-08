@@ -44,6 +44,7 @@ references for exact contracts:
 
 - [Agent tools](reference/agent.md)
 - [`ask_owner`](reference/ask-owner.md)
+- [`message_owner`](reference/message-owner.md)
 - [Staff tools](reference/staff.md)
 - [Supervisor tools](reference/supervisor.md)
 - [Peer tools](reference/peer.md)

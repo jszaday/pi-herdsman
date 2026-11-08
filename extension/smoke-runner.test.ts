@@ -9725,6 +9725,57 @@ test("deep-chain faux requires delegation below the limit and a leaf at it", () 
   });
   assert.equal(firstToolCall(ask).name, "ask_owner");
   assert.equal(firstToolCall(ask).arguments.question, "SMOKE_DEEP_QUESTION");
+  // The level-2 Agent messages its owner once while its child runs, then waits.
+  const level2Delegated = [
+    ...deepMessages("SMOKE_DEEP_LEVEL_2: go", true),
+    {
+      role: "assistant" as const,
+      content: [
+        {
+          type: "toolCall",
+          id: "d",
+          name: "delegate_agent",
+          arguments: { label: "smoke-deep-3" },
+        },
+      ],
+    },
+    {
+      role: "toolResult",
+      toolName: "delegate_agent",
+      toolCallId: "d",
+      content: [],
+    },
+  ];
+  const notice = decideSmokeFaux("deep-chain", { messages: level2Delegated });
+  assert.equal(firstToolCall(notice).name, "message_owner");
+  assert.equal(firstToolCall(notice).arguments.message, "SMOKE_DEEP_NOTICE");
+  assert.equal(
+    firstToolCall(
+      decideSmokeFaux("deep-chain", {
+        messages: [
+          ...level2Delegated,
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "toolCall",
+                id: "m",
+                name: "message_owner",
+                arguments: { message: "SMOKE_DEEP_NOTICE" },
+              },
+            ],
+          },
+          {
+            role: "toolResult",
+            toolName: "message_owner",
+            toolCallId: "m",
+            content: [],
+          },
+        ],
+      }),
+    ),
+    undefined,
+  );
   // The depth-3 owner answers the leaf's delivered question.
   const reply = decideSmokeFaux("deep-chain", {
     messages: [
@@ -9821,6 +9872,16 @@ const deepSession = (
 
 const deepAsk = () =>
   deepCall("ask_owner", { question: "SMOKE_DEEP_QUESTION" });
+const deepNotice = () =>
+  deepCall("message_owner", { message: "SMOKE_DEEP_NOTICE" });
+const deepOwnerMessage = () => [
+  {
+    type: "custom_message",
+    customType: "pi-herdsman-agent-owner-message",
+    details: { agentLabel: "smoke-deep-2" },
+    content: "Agent smoke-deep-2 sent you a message: SMOKE_DEEP_NOTICE",
+  },
+];
 const deepReply = () =>
   deepCall("reply_agent", {
     agent: "smoke-deep-4",
@@ -9830,19 +9891,29 @@ const deepGood = (
   leafResult = "L4:SMOKE_DEEP_LEAF",
   reply = true,
   ask = true,
+  notice = true,
+  delivered = true,
 ) => [
   deepSession("s0", {
     label: "smoke-deep-1",
     result: "L1:L2:L3:L4:SMOKE_DEEP_LEAF",
   }),
-  deepSession("s1", {
-    label: "smoke-deep-2",
-    result: "L2:L3:L4:SMOKE_DEEP_LEAF",
-  }),
-  deepSession("s2", {
-    label: "smoke-deep-3",
-    result: "L3:L4:SMOKE_DEEP_LEAF",
-  }),
+  deepSession(
+    "s1",
+    {
+      label: "smoke-deep-2",
+      result: "L2:L3:L4:SMOKE_DEEP_LEAF",
+    },
+    delivered ? deepOwnerMessage() : [],
+  ),
+  deepSession(
+    "s2",
+    {
+      label: "smoke-deep-3",
+      result: "L3:L4:SMOKE_DEEP_LEAF",
+    },
+    notice ? deepNotice() : [],
+  ),
   deepSession(
     "s3",
     { label: "smoke-deep-4", result: leafResult },
@@ -9873,6 +9944,14 @@ test("deep-chain evidence needs one delegation per level, the escalation and the
   assert.throws(
     () => assertDeepChainEvidence(deepGood(undefined, true, false)),
     /must escalate one ask_owner/,
+  );
+  assert.throws(
+    () => assertDeepChainEvidence(deepGood(undefined, true, true, false)),
+    /level-2 Agent must send one message_owner/,
+  );
+  assert.throws(
+    () => assertDeepChainEvidence(deepGood(undefined, true, true, true, false)),
+    /owner must receive the level-2 message_owner/,
   );
   assert.throws(
     () =>

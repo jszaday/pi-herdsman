@@ -154,6 +154,7 @@ test("managed Agent surfaces distinguish delegation capability from leaf access"
   assert.deepEqual(names(leaf), [
     "ask_owner",
     "attach_handoff",
+    "message_owner",
     "read_evidence",
   ]);
   leaf.events.get("session_shutdown")?.[0]();
@@ -166,6 +167,7 @@ test("managed Agent surfaces distinguish delegation capability from leaf access"
     names(delegating),
     [
       "ask_owner",
+      "message_owner",
       "stop_agent",
       "continue_agent",
       "delegate_agent",
